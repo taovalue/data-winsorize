@@ -1,0 +1,237 @@
+---
+title: "Z Score QA"
+output: html_notebook
+---
+
+Notes:
+Instruction of Calculator :	
+	1.  copy raw ratios to column B (Raw Ratio)
+	2.  Final wonsorized raw ratio and its z-score is returned in column L amd M. Use only these two columns as the final result, not the iteration 4
+	3.  Cell O3 shows how many iterations the final result runs
+	
+Algorithm:	
+	1. Set Iteration =1;
+	2. Compute z-scores (cross-sectional) for all the raw ratios in the base universe selected
+	1.1 If All |z-score|<5, use this z-score as the final result. Stop iterative process.
+	1.2 If Any |z-score| >=5, then flag any instance that has a z-score > |3| as outlier 
+	    
+	3. Compute a new_mean and new_stdev of raw ratios from #1 that are not flagged as outliers (having a z-score with z-scores <= |3|)
+	
+	4. For any raw ratios that,
+	
+	
+	
+	5. Iteration = Iteration + 1;
+	6. Repeat steps 2 to 5. End process at 2.1 or until Iteration = 4, whichever is earliest.
+	
+	(This iteration number is slightly off from the SQL s.p. iteration column. )
+
+```{r}
+library(dplyr)
+```
+
+1. build a z score function
+```{r}
+zscore = function(data) {
+  z = (data-mean(data))/sd(data)
+  return(z)
+}
+
+# test
+# a = c(1:10)
+# zscore(a)
+```
+
+2. build a winsorize function
+```{r}
+# winsorize test code
+
+a = as.double(c(1:49))
+a = c(a,1E+16)
+sigma = 1 # times of sigma check
+
+a[abs(zscore(a)) <= 3]
+
+mean(a[abs(zscore(a)) <= 3])
+sd(a[abs(zscore(a)) <= 3])
+
+
+b = case_when(
+  zscore(a) <= -3 ~ mean(a[abs(zscore(a)) <= 3]) - 3*sd(a[abs(zscore(a)) <= 3]),
+  zscore(a) >= 3 ~ mean(a[abs(zscore(a)) <= 3]) + 3*sd(a[abs(zscore(a)) <= 3]),
+  TRUE ~ a
+)
+
+summary(b)
+zscore(b)
+
+c = data.frame(a,b)
+
+c[c$b == max(c$b),]
+td$test2[297]
+
+# function it up
+winsorize = function(data = NULL, sigAdj=NULL) {
+  require(dplyr)
+  
+  new_data = data[abs(zscore(data)) <= sigAdj]
+  new_mean = mean(new_data)
+  new_sd = sd(new_data)
+  lowerb = new_mean - sigAdj*new_sd
+  upperb = new_mean + sigAdj*new_sd
+  
+  wd = case_when(
+  data < lowerb ~ lowerb,
+  data > upperb ~ upperb,
+  TRUE ~ data
+  )
+  
+  return(wd)
+}
+
+winsorize1 = function(data = NULL, sigAdj=NULL) {
+  require(dplyr)
+  
+  new_data = data[abs(zscore(data)) <= sigAdj]
+  new_mean = mean(new_data)
+  new_sd = sd(new_data)
+  lowerb = new_mean - sigAdj*new_sd
+  upperb = new_mean + sigAdj*new_sd
+  
+  wd = case_when(
+  zscore(data) <= -3 ~ lowerb,
+  zscore(data) >= -3 ~ upperb,
+  TRUE ~ data
+  )
+  
+  return(wd)
+}
+
+# test function
+a = as.double(c(1:49))
+a = c(a,1E+16)
+results = data.frame(
+  "raw value" = a, 
+  "zscore" = zscore(a),
+  "wsValue" = winsorize(a, 3),
+  "wsZ" = zscore(winsorize(a, 3)),
+  "wsValueAlt" = winsorize1(a, 3),
+  "wsZAlt" = zscore(winsorize1(a, 3))
+  )
+results
+
+
+
+```
+
+3. build a while loop function
+```{r}
+# a = as.double(c(1:100))
+a = as.double(c(1:9))
+a = c(a,1E+16)
+a = td$test2
+
+sc = 5 # times of sigma for checking outlier
+sa = 3 # times of sigma for adjusting raw value
+maxitr = 100 # max iteration limit (use equal sigCheck & sigAdj to test)
+
+i = 1 # initialization parameter
+winsCt = 0 # counts of winsorization
+maz = max(abs(zscore(a)))
+
+while (i == 1) {
+  if ( maz > sc & winsCt <= maxitr) {
+    a = winsorize(a,sa)
+    maz = max(abs(zscore(a)))
+    winsCt = winsCt+1
+  } else {
+    i = 0
+    # a = a
+    # maz = max(abs(zscore(a)))
+  }
+  
+  print(max(a))
+  print(maz)
+  print(i)
+  # using 
+}
+
+rm(list = c("sigAdj","sigCheck","sigma","winsCt","maz","maxitr","i"))
+
+####### function it up
+wins_rs = function(data=NULL, sigCheck=NULL, sigAdj=NULL) {
+  # define additional parameters
+  maxitr = 100 # max iteration limit (use equal sigCheck & sigAdj to test)
+  i = 1 # initialization parameter
+  wCt = 0 # counts of winsorization
+  zsLog = zscore(data)
+  dLog = data
+  
+  # while loop
+  while (i == 1) {
+    maz = max(abs(zscore(data)))
+    if ( maz > sigCheck && wCt <= maxitr) {
+      i = 1
+      data = winsorize(data,sigAdj)
+      # maz = max(abs(zscore(data)))
+      zsLog = data.frame(zsLog,zscore(data))
+      dLog = data.frame(dLog, data)
+      wCt = wCt+1
+    } else {
+      i = 0
+      # data = data
+      # maz = max(abs(zscore(data)))
+      # zsMx = data.frame(zsMx,zscore(data))
+      # wCt = wCt
+    }
+    
+  }
+    
+  list.out = list("data" = data, 
+                  "dataz" = zscore(data),
+                  "WinsCount" = wCt,
+                  "LastZscore" = maz,
+                  "zlog" = zsLog,
+                  "dlog" = dLog
+                  )
+  return(list.out)
+}
+
+# test
+a = as.double(c(1:49))
+a = c(a,1E+16)
+op = wins_rs(a,5,3)
+
+# op$data
+# op$dataz
+op$WinsCount
+op$zlog
+op$dlog
+
+```
+
+4. test using other values
+```{r}
+
+path = "C:/Users/patrick.fang/OneDrive - IHS Markit/ResearchSignals/Projects/20191226_ZScoreQA"
+file = "testCases.txt"
+
+td = read.table(file.path(path,file), header = TRUE, sep = "\t")
+
+# rm(list = c("ouput1","ouput2","ouput3"))
+
+output1 = wins_rs(td$test1,5,3)
+output2 = wins_rs(td$test2,5,3)
+output3 = wins_rs(td$test3,5,3)
+
+output = data.frame("output1" = c(zscore(output1$data), output1$WinsCount),
+                    "output2" = c(zscore(output2$data), output2$WinsCount),
+                    "output3" = c(zscore(output3$data), output3$WinsCount)
+)
+
+write.table(output, file.path(path, "testOutputs.txt"), sep = '\t', row.names=FALSE, col.names = TRUE, quote = FALSE)
+
+
+
+```
+

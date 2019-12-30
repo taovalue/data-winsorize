@@ -48,13 +48,6 @@ zscore = function(data) {
 
 a = as.double(c(1:49))
 a = c(a,1E+16)
-sigma = 1 # times of sigma check
-
-a[abs(zscore(a)) <= 3]
-
-mean(a[abs(zscore(a)) <= 3])
-sd(a[abs(zscore(a)) <= 3])
-
 
 b = case_when(
   zscore(a) <= -3 ~ mean(a[abs(zscore(a)) <= 3]) - 3*sd(a[abs(zscore(a)) <= 3]),
@@ -65,10 +58,10 @@ b = case_when(
 summary(b)
 zscore(b)
 
-c = data.frame(a,b)
-
-c[c$b == max(c$b),]
-td$test2[297]
+### below codes for debugging when a = td$test2
+# c = data.frame(a,b)
+# c[c$b == max(c$b),]
+# td$test2[297]
 
 # function it up
 winsorize = function(data = NULL, sigAdj=NULL) {
@@ -100,7 +93,7 @@ winsorize1 = function(data = NULL, sigAdj=NULL) {
   
   wd = case_when(
   zscore(data) <= -3 ~ lowerb,
-  zscore(data) >= -3 ~ upperb,
+  zscore(data) >= 3 ~ upperb,
   TRUE ~ data
   )
   
@@ -108,8 +101,10 @@ winsorize1 = function(data = NULL, sigAdj=NULL) {
 }
 
 # test function
-a = as.double(c(1:49))
-a = c(a,1E+16)
+a = as.double(c(1:17)^c(1:17))
+a = c(1E+14, 1E+24,-1E+18, a)
+
+
 results = data.frame(
   "raw value" = a, 
   "zscore" = zscore(a),
@@ -119,6 +114,7 @@ results = data.frame(
   "wsZAlt" = zscore(winsorize1(a, 3))
   )
 results
+summary(results)
 
 
 
@@ -164,18 +160,18 @@ wins_rs = function(data=NULL, sigCheck=NULL, sigAdj=NULL) {
   maxitr = 100 # max iteration limit (use equal sigCheck & sigAdj to test)
   i = 1 # initialization parameter
   wCt = 0 # counts of winsorization
-  zsLog = zscore(data)
-  dLog = data
+  Log = data.frame(data, zs = zscore(data))
   
   # while loop
   while (i == 1) {
     maz = max(abs(zscore(data)))
     if ( maz > sigCheck && wCt <= maxitr) {
-      i = 1
+      # i = 1
       data = winsorize(data,sigAdj)
       # maz = max(abs(zscore(data)))
-      zsLog = data.frame(zsLog,zscore(data))
-      dLog = data.frame(dLog, data)
+      Log = data.frame(Log, data, zs = zscore(data))
+      # zsLog = data.frame(zsLog,zscore(data))
+      # dLog = data.frame(dLog, data)
       wCt = wCt+1
     } else {
       i = 0
@@ -191,8 +187,8 @@ wins_rs = function(data=NULL, sigCheck=NULL, sigAdj=NULL) {
                   "dataz" = zscore(data),
                   "WinsCount" = wCt,
                   "LastZscore" = maz,
-                  "zlog" = zsLog,
-                  "dlog" = dLog
+                  # "zlog" = zsLog,
+                  "log" = Log
                   )
   return(list.out)
 }
@@ -205,10 +201,51 @@ op = wins_rs(a,5,3)
 # op$data
 # op$dataz
 op$WinsCount
-op$zlog
-op$dlog
+op$log
 
 ```
+
+What if using alternative winsorize function
+```{r}
+wins_rs1 = function(data=NULL, sigCheck=NULL, sigAdj=NULL) {
+  # define additional parameters
+  maxitr = 100 # max iteration limit (use equal sigCheck & sigAdj to test)
+  i = 1 # initialization parameter
+  wCt = 0 # counts of winsorization
+  Log = data.frame(data, zs = zscore(data))
+  
+  # while loop
+  while (i == 1) {
+    maz = max(abs(zscore(data)))
+    if ( maz > sigCheck && wCt <= maxitr) {
+      i = 1
+      data = winsorize1(data,sigAdj)
+      # maz = max(abs(zscore(data)))
+      Log = data.frame(Log, data, zs = zscore(data))
+      # zsLog = data.frame(zsLog,zscore(data))
+      # dLog = data.frame(dLog, data)
+      wCt = wCt+1
+    } else {
+      i = 0
+      # data = data
+      # maz = max(abs(zscore(data)))
+      # zsMx = data.frame(zsMx,zscore(data))
+      # wCt = wCt
+    }
+    
+  }
+    
+  list.out = list("data" = data, 
+                  "dataz" = zscore(data),
+                  "WinsCount" = wCt,
+                  "LastZscore" = maz,
+                  # "zlog" = zsLog,
+                  "log" = Log
+                  )
+  return(list.out)
+}
+```
+
 
 4. test using other values
 ```{r}
@@ -224,6 +261,8 @@ output1 = wins_rs(td$test1,5,3)
 output2 = wins_rs(td$test2,5,3)
 output3 = wins_rs(td$test3,5,3)
 
+output1_alt = wins_rs1(td$test1,5,3)
+
 output = data.frame("output1" = c(zscore(output1$data), output1$WinsCount),
                     "output2" = c(zscore(output2$data), output2$WinsCount),
                     "output3" = c(zscore(output3$data), output3$WinsCount)
@@ -231,7 +270,22 @@ output = data.frame("output1" = c(zscore(output1$data), output1$WinsCount),
 
 write.table(output, file.path(path, "testOutputs.txt"), sep = '\t', row.names=FALSE, col.names = TRUE, quote = FALSE)
 
+test1_full = data.frame(
+  "Raw Value" = output1$dlog$dLog,
+  
+) 
 
+output1$WinsCount
+output1$log[order(-abs(output1$log$data)),]
+output1$log[order(-abs(output1$log$zs.3)),]
+
+# see zs.9 row 1 & 2, depending on the stopping threshold, the larger raw value (1E24) could have a smaller ending z score, which I guess is not good.
+output1_alt$WinsCount
+output1_alt$log[order(-abs(output1$log$data)),]
+output1_alt$log[order(-abs(output1$log$zs.3)),]
+
+z = output1_alt$log[order(-abs(output1$log$data)),]
+write.table(z, file.path(path, "Wins_log.txt"), sep = '\t', row.names=FALSE, col.names = TRUE, quote = FALSE)
 
 ```
 
